@@ -1,0 +1,57 @@
+From 25d39f957d44f6cf612922ce8a09427426e18dfc Mon Sep 17 00:00:00 2001
+From: mini-coco <1228504957@qq.com>
+Date: Tue, 12 Sep 2023 23:16:13 +0800
+Subject: [PATCH 2/2] fix sound
+
+---
+ sound/pci/hda/cs35l41_hda.c | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/sound/pci/hda/cs35l41_hda.c b/sound/pci/hda/cs35l41_hda.c
+index f9b77353c266..ead5d46e831b 100644
+--- a/sound/pci/hda/cs35l41_hda.c
++++ b/sound/pci/hda/cs35l41_hda.c
+@@ -1404,7 +1404,7 @@ static int cs35l41_hda_read_acpi(struct cs35l41_hda *cs35l41, const char *hid, i
+ 	property = "cirrus,dev-index";
+ 	ret = device_property_count_u32(physdev, property);
+ 	if (ret <= 0)
+-		goto err;
++		goto no_acpi_dsd;
+ 
+ 	if (ret > ARRAY_SIZE(values)) {
+ 		ret = -EINVAL;
+@@ -1502,6 +1502,31 @@ static int cs35l41_hda_read_acpi(struct cs35l41_hda *cs35l41, const char *hid, i
+ 	put_device(physdev);
+ 
+ 	return ret;
++
++no_acpi_dsd:
++        /*
++         * Device CLSA0100 doesn't have _DSD so a gpiod_get by the label reset won't work.
++         * And devices created by i2c-multi-instantiate don't have their device struct pointing to
++         * the correct fwnode, so acpi_dev must be used here.
++         * And devm functions expect that the device requesting the resource has the correct
++         * fwnode.
++         */
++        //if (strncmp(hid, "CLSA0100", 8) != 0)
++        if (strncmp(hid, "CLSA0100", 8) != 0 && strncmp(hid, "CSC3551", 7) != 0)
++                return -EINVAL;
++
++        /* check I2C address to assign the index */
++        cs35l41->index = id == 0x40 ? 0 : 1;
++        cs35l41->hw_cfg.spk_pos = cs35l41->index;
++        cs35l41->channel_index = 0;
++        cs35l41->reset_gpio = gpiod_get_index(physdev, NULL, 0, GPIOD_OUT_HIGH);
++        cs35l41->hw_cfg.bst_type = CS35L41_EXT_BOOST_NO_VSPK_SWITCH;
++        hw_cfg->gpio2.func = CS35L41_GPIO2_INT_OPEN_DRAIN;
++        hw_cfg->gpio2.valid = true;
++        cs35l41->hw_cfg.valid = true;
++        put_device(physdev);
++
++        return 0;
+ }
+ 
+ int cs35l41_hda_probe(struct device *dev, const char *device_name, int id, int irq,
+-- 
+2.34.1
+
